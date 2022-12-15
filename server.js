@@ -1,6 +1,11 @@
 import assert from 'assert';
 import camelCase from 'camelcase';
-import Provider from 'oidc-provider';
+
+import wildcard from 'wildcard';
+import psl from 'psl';
+
+import Provider, { errors } from 'oidc-provider';
+
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -8,6 +13,7 @@ const host = process.env.SERVER_HOST || 'localhost'
 const port = process.env.SERVER_PORT || 8080
 const serverProtocol = process.env.SERVER_PROTOCOL || 'http'
 const serverIssuer = process.env.SERVER_ISSUER || `${serverProtocol}://${host}:${port}`
+
 
 console.log(`Environment config\nHost: ${host}\nPort: ${port}\nProtocol: ${serverProtocol}\nIssuer: ${serverIssuer}`);
 
@@ -17,18 +23,24 @@ const config = ['CLIENT_ID', 'CLIENT_SECRET', 'CLIENT_REDIRECT_URI', 'CLIENT_LOG
     return acc;
 }, {});
 
+let adapter;
+if (process.env.MONGODB_URI) {
+    ({ default: adapter } = await import('./adapters/mongodb.js'));
+    await adapter.connect();
+}
+
 const oidcConfig = {
-    clients: [{
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        redirect_uris: [config.clientRedirectUri],
-        post_logout_redirect_uris: [config.clientLogoutRedirectUri]
-    }],
-    interactions: {
-        url(ctx, interaction) { // eslint-disable-line no-unused-vars
-            return `/interaction/${interaction.uid}`;
-        },
-    },
+    // clients: [{
+    //     client_id: config.clientId,
+    //     client_secret: config.clientSecret,
+    //     redirect_uris: [config.clientRedirectUri],
+    //     post_logout_redirect_uris: [config.clientLogoutRedirectUri]
+    // }],
+    // interactions: {
+    //     url(ctx, interaction) { // eslint-disable-line no-unused-vars
+    //         return `/interaction/${interaction.uid}`;
+    //     },
+    // },
     cookies: {
         keys: ['some secret key', 'and also the old rotated away some time ago', 'and one more'],
     },
@@ -41,6 +53,9 @@ const oidcConfig = {
         introspection: { enabled: true },
         deviceFlow: { enabled: true }, // defaults to false
         revocation: { enabled: true }, // defaults to false
+        registration: { enabled: true }, // defaults to false
+        // request: { enabled: true }, // defaults to false
+        // sessionManagement: { enabled: true }, // defaults to false
     },
     jwks: {
         keys: [
@@ -66,41 +81,70 @@ const oidcConfig = {
             },
         ],
     },
-    async findAccount (ctx, id) {
-        return {
-            accountId: id,
-            async claims (use, scope) {
-                return {
-                    sub: id,
-                    email: 'test@test.ch',
-                    name: 'test',
-                    preferred_username: 'Test'
-                }
-            }
+    // async findAccount (ctx, id) {
+    //     return {
+    //         accountId: id,
+    //         async claims (use, scope) {
+    //             return {
+    //                 sub: id,
+    //                 email: 'test@test.ch',
+    //                 name: 'test',
+    //                 preferred_username: 'Test'
+    //             }
+    //         }
+    //     }
+    // },
+    async loadExistingGrant(ctx) {
+        const grantId = (ctx.oidc.result
+          && ctx.oidc.result.consent
+          && ctx.oidc.result.consent.grantId) || ctx.oidc.session.grantIdFor(ctx.oidc.client.clientId);
+    
+        if (grantId) {
+          // keep grant expiry aligned with session expiry
+          // to prevent consent prompt being requested when grant expires
+          const grant = await ctx.oidc.provider.Grant.find(grantId);
+    
+          // this aligns the Grant ttl with that of the current session
+          // if the same Grant is used for multiple sessions, or is set
+          // to never expire, you probably do not want this in your code
+          if (ctx.oidc.account && grant.exp < ctx.oidc.session.exp) {
+            grant.exp = ctx.oidc.session.exp;
+    
+            await grant.save();
+          }
+    
+          return grant;
+        } else if (isFirstParty(ctx.oidc.client)) {
+          const grant = new ctx.oidc.provider.Grant({
+            clientId: ctx.oidc.client.clientId,
+            accountId: ctx.oidc.session.accountId,
+          });
+    
+          grant.addOIDCScope('openid email profile');
+          grant.addOIDCClaims(['first_name']);
+          grant.addResourceScope('urn:example:resource-indicator', 'api:read api:write');
+          await grant.save();
+          return grant;
         }
-    }
+      }
 }
 
-const oidc = new Provider(serverIssuer, oidcConfig);
+// # TODO: replace auth route to match with setup: https://github.com/destenson/panva--node-oidc-provider/blob/master/docs/configuration.md#routes
+
+const oidc = new Provider(serverIssuer, { adapter, ...oidcConfig });
 oidc.proxy = true;
 
 // redirectUriAllowed on a client prototype checks whether a redirect_uri is allowed or not
-const { redirectUriAllowed } = oidc.Client.prototype;
+// const { redirectUriAllowed } = oidc.Client.prototype;
 
-const hasWildcardHost = (redirectUri) => {
-    const { hostname } = new URL(redirectUri);
-    return hostname.includes('*');
-};
+// oidc.Client.prototype.redirectUriAllowed = function wildcardRedirectUriAllowed(redirectUri) {
+//     console.log('redirectUriAllowed begin', redirectUri);
+//     return redirectUriAllowed.call(this, "https://mada-positive-scorecard-test-frontend-wbk4l7i2dq-ew.a.run.app/login");
+// };
 
-const wildcardMatches = (redirectUri, wildcardUri) => !!wildcard(wildcardUri, redirectUri);
-
-oidc.Client.prototype.redirectUriAllowed = function wildcardRedirectUriAllowed(redirectUri) {
-    if (!redirectUri.includes('*')) {
-        return redirectUriAllowed.call(this, redirectUri);
-    }
-    const wildcardUris = this.redirectUris.filter(hasWildcardHost);
-    return wildcardUris.some(wildcardMatches.bind(undefined, redirectUri));
-};
+// console.log('Before', errors.InvalidClientMetadata.prototype.allow_redirect);
+// Object.defineProperty(errors.InvalidClientMetadata.prototype, 'allow_redirect', { value: false });
+// console.log('After', errors.InvalidClientMetadata.prototype.allow_redirect);
 
 oidc.callback();
 

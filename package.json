@@ -1,0 +1,24 @@
+{
+  "name": "mock-oidc-user-server",
+  "version": "0.0.1",
+  "description": "A mock server providing OpenID Connect (OIDC) flows for local development and testing",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nhymxu/mock-oidc-user-server.git"
+  },
+  "author": "Dung Nguyen (nhymxu)",
+  "bugs": {
+    "url": "https://github.com/nhymxu/mock-oidc-user-server/issues"
+  },
+  "homepage": "https://github.com/nhymxu/mock-oidc-user-server#readme",
+  "type": "module",
+  "dependencies": {
+    "camelcase": "^7.0.1",
+    "dotenv": "^16.0.3",
+    "oidc-provider": "^8.0.0"
+  }
+}

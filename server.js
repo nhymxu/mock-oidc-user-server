@@ -6,6 +6,7 @@ dotenv.config();
 
 const host = process.env.SERVER_HOST || 'localhost'
 const port = process.env.SERVER_HOST || 8080
+const serverProtocol = process.env.SERVER_PROTOCOL || 'http'
 
 const config = ['CLIENT_ID', 'CLIENT_SECRET', 'CLIENT_REDIRECT_URI', 'CLIENT_LOGOUT_REDIRECT_URI'].reduce((acc, v) => {
     assert(process.env[v], `${v} config missing`);
@@ -77,7 +78,7 @@ const oidcConfig = {
     }
 }
 
-const oidc = new Provider(`http://${host}:${port}`, oidcConfig);
+const oidc = new Provider(`${serverProtocol}://${host}:${port}`, oidcConfig);
 oidc.proxy = true;
 
 // redirectUriAllowed on a client prototype checks whether a redirect_uri is allowed or not

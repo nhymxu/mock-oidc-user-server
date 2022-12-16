@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "oauth2-mock-server": "^5.0.1"
+  }
+}

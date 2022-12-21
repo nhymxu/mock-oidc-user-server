@@ -19,6 +19,14 @@ async function startServer() {
         }
     }
     let server = new OAuth2Server(optionKey, optionCert, oauth2Optioons);
+    server.service.once('beforeUserinfo', (userInfoResponse, req) => {
+        userInfoResponse.body = {
+            uid: '171717',
+            email: 'testeadeo17@gmail.com',
+            sub: 'johndoe'
+        };
+        userInfoResponse.statusCode = 200;
+    });
     
     if (issuerURL) {
         server.issuer.url = issuerURL;
